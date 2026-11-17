@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>瓶身卷标弯曲工具</title>
+<style>
+:root{
+  /* layout: sticky preview stage on the left, numbered control groups stacked on the right; one column under 880px */
+  --bg:#eef0ec;
+  --panel:#ffffff;
+  --ink:#18201c;
+  --muted:#5f6b65;
+  --line:#d6dbd6;
+  --accent:#0d6b5a;
+  --accent-ink:#ffffff;
+  --accent-soft:#e0efeb;
+  --stage:#f8f9f7;
+  --check:#dfe3df;
+  --font-body:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC","Source Han Sans SC",system-ui,sans-serif;
+  --font-display:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#111513;--panel:#1a1f1c;--ink:#e7ece9;--muted:#98a39d;--line:#2e3632;
+    --accent:#56c7ae;--accent-ink:#0b1a16;--accent-soft:#1d3a33;--stage:#161a18;--check:#262d29;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#111513;--panel:#1a1f1c;--ink:#e7ece9;--muted:#98a39d;--line:#2e3632;
+  --accent:#56c7ae;--accent-ink:#0b1a16;--accent-soft:#1d3a33;--stage:#161a18;--check:#262d29;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.55}
+.wrap{max-width:1240px;margin:0 auto;padding:24px 20px 48px;display:flex;flex-direction:column;gap:20px}
+header{display:flex;flex-direction:column;gap:4px}
+h1{font-family:var(--font-display);font-size:26px;line-height:1.25;margin:0;font-weight:700;letter-spacing:.01em;text-wrap:balance}
+header p{margin:0;color:var(--muted);max-width:62ch}
+.grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:20px;align-items:start}
+.stagecol{position:sticky;top:16px;display:flex;flex-direction:column;gap:10px}
+.stage{border:1px solid var(--line);border-radius:10px;min-height:320px;display:flex;align-items:center;justify-content:center;padding:18px;overflow:hidden;
+  background-color:var(--stage);
+  background-image:linear-gradient(45deg,var(--check) 25%,transparent 25%,transparent 75%,var(--check) 75%),linear-gradient(45deg,var(--check) 25%,transparent 25%,transparent 75%,var(--check) 75%);
+  background-size:20px 20px;background-position:0 0,10px 10px}
+.stage.white{background:#fff}
+.stage.drop{outline:2px dashed var(--accent);outline-offset:-6px}
+#view{max-width:100%;max-height:72vh;width:auto;height:auto;display:block;touch-action:none}
+#view.movable{cursor:move}
+.stagebar{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;color:var(--muted);font-size:13px}
+.stagebar .num{font-variant-numeric:tabular-nums}
+.controls{display:flex;flex-direction:column;gap:12px}
+fieldset{border:1px solid var(--line);background:var(--panel);border-radius:10px;margin:0;padding:14px 16px 16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+legend{padding:0 6px;font-weight:700;font-size:14px;display:flex;gap:8px;align-items:center}
+legend b{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font-size:12px;font-variant-numeric:tabular-nums}
+.hint{margin:0;color:var(--muted);font-size:13px}
+.row{display:grid;grid-template-columns:5.6em minmax(0,1fr) 3.6em;gap:10px;align-items:center}
+.row span{font-size:14px}
+.row output{font-variant-numeric:tabular-nums;text-align:right;color:var(--muted);font-size:13px}
+input[type=range]{width:100%;accent-color:var(--accent);margin:0;height:22px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip,.btn{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:7px 12px;cursor:pointer;line-height:1.3}
+.chip{font-size:13px}
+.chip[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--ink)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700}
+.btn:hover,.chip:hover{border-color:var(--accent)}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.file{display:flex;flex-direction:column;gap:4px}
+.file .name{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.check{display:flex;gap:8px;align-items:flex-start;font-size:14px}
+.check input{margin-top:4px;accent-color:var(--accent)}
+.radio{display:flex;flex-direction:column;gap:6px}
+#status{min-height:1.5em;font-size:13px;color:var(--muted);margin:0}
+#result{display:none;flex-direction:column;gap:8px}
+#result img{max-width:100%;border:1px solid var(--line);border-radius:8px;background:#fff}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+@media (max-width:880px){
+  .grid{grid-template-columns:minmax(0,1fr)}
+  .stagecol{position:static}
+  #view{max-height:56vh}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>瓶身卷标弯曲工具</h1>
+    <p>把平铺的卷标 PNG 卷到圆柱瓶身上：两侧的文字和图案自然压缩，上下沿带弧度，再加一层瓶身明暗。导出透明底 PNG，拖回 Canva 盖在瓶子上即可。</p>
+  </header>
+
+  <div class="grid">
+    <div class="stagecol">
+      <div class="stage" id="stage"><canvas id="view" width="800" height="1000" aria-label="卷标弯曲效果预览"></canvas></div>
+      <div class="stagebar">
+        <span id="dims" class="num"></span>
+        <label class="check"><input type="checkbox" id="whitebg"> 白底预览</label>
+      </div>
+    </div>
+
+    <div class="controls">
+      <fieldset>
+        <legend><b>1</b>图片</legend>
+        <div class="file">
+          <div class="btns">
+            <button class="btn primary" type="button" id="pickLabel">上传卷标平铺图</button>
+            <button class="btn" type="button" id="pickBottle">上传空白瓶子图（可选）</button>
+          </div>
+          <input class="sr" type="file" id="fileLabel" accept="image/png,image/jpeg,image/webp" tabindex="-1">
+          <input class="sr" type="file" id="fileBottle" accept="image/png,image/jpeg,image/webp" tabindex="-1">
+          <div class="name" id="names">当前显示的是示例卷标和示例瓶子。也可以把图片直接拖到左边预览区。</div>
+        </div>
+        <label class="check"><input type="checkbox" id="showBottle" checked> 预览时显示瓶子（用来对位，导出卷标时不会带上）</label>
+      </fieldset>
+
+      <fieldset>
+        <legend><b>2</b>卷曲</legend>
+        <div class="chips" role="group" aria-label="平铺图类型">
+          <button class="chip" type="button" id="kindFront" aria-pressed="true">平铺图只有正面一块</button>
+          <button class="chip" type="button" id="kindFull" aria-pressed="false">平铺图是整圈卷标</button>
+        </div>
+        <label class="row"><span>环绕角度</span><input type="range" id="wrap" min="40" max="360" step="1" value="150"><output id="wrap_o"></output></label>
+        <label class="row"><span>左右转动</span><input type="range" id="rot" min="-180" max="180" step="1" value="0"><output id="rot_o"></output></label>
+        <label class="check"><input type="checkbox" id="extend" checked> 用卷标两侧的颜色补满瓶身（让卷标看起来绕到瓶子背面）</label>
+        <p class="hint">环绕角度是这张平铺图在瓶身上占的圈数。角度越大，两侧压缩越明显；正面卷标一般在 120°–160°。</p>
+      </fieldset>
+
+      <fieldset>
+        <legend><b>3</b>视角弧度</legend>
+        <div class="chips" role="group" aria-label="拍摄视角">
+          <button class="chip" type="button" data-view="-2,2" aria-pressed="true">平视</button>
+          <button class="chip" type="button" data-view="2,4.5" aria-pressed="false">略俯视</button>
+          <button class="chip" type="button" data-view="5,8.5" aria-pressed="false">俯视</button>
+          <button class="chip" type="button" data-view="0,0" aria-pressed="false">不弯</button>
+        </div>
+        <label class="row"><span>上沿弧度</span><input type="range" id="curveTop" min="-12" max="12" step="0.1" value="-2"><output id="curveTop_o"></output></label>
+        <label class="row"><span>下沿弧度</span><input type="range" id="curveBot" min="-12" max="12" step="0.1" value="2"><output id="curveBot_o"></output></label>
+        <p class="hint">正数是中间往下坠，负数是中间往上拱。选和瓶子图一致的视角：能看到瓶盖顶面就是俯视。</p>
+      </fieldset>
+
+      <fieldset>
+        <legend><b>4</b>光影</legend>
+        <label class="row"><span>两侧暗部</span><input type="range" id="edge" min="0" max="100" step="1" value="32"><output id="edge_o"></output></label>
+        <label class="row"><span>高光强度</span><input type="range" id="hl" min="0" max="60" step="1" value="12"><output id="hl_o"></output></label>
+        <label class="row"><span>高光位置</span><input type="range" id="hlPos" min="-90" max="90" step="1" value="-38"><output id="hlPos_o"></output></label>
+      </fieldset>
+
+      <fieldset id="placeBox">
+        <legend><b>5</b>对位</legend>
+        <label class="row"><span>瓶身宽度</span><input type="range" id="size" min="20" max="100" step="0.1" value="62"><output id="size_o"></output></label>
+        <label class="row"><span>高度微调</span><input type="range" id="hscale" min="60" max="140" step="0.5" value="100"><output id="hscale_o"></output></label>
+        <p class="hint">在预览图上拖动可以移动卷标。把瓶身宽度调到虚线贴住瓶子左右边缘。</p>
+      </fieldset>
+
+      <fieldset>
+        <legend><b id="exportNo">6</b>导出</legend>
+        <div class="radio" role="radiogroup" aria-label="导出内容">
+          <label class="check"><input type="radio" name="what" id="whatLabel" value="label" checked> 只导出弯曲后的卷标（透明底，放回 Canva 用）</label>
+          <label class="check"><input type="radio" name="what" id="whatBoth" value="both"> 卷标和瓶子合成一张</label>
+        </div>
+        <div class="btns">
+          <button class="btn primary" type="button" id="dl">下载 PNG</button>
+          <button class="btn" type="button" id="copy">复制图片</button>
+          <button class="btn" type="button" id="reset">恢复默认参数</button>
+        </div>
+        <p id="status" role="status" aria-live="polite"></p>
+        <div id="result">
+          <p class="hint">已开始下载。如果浏览器没有保存，在下面这张图上右键选择“图片另存为”。</p>
+          <img id="resultImg" alt="导出的图片">
+        </div>
+      </fieldset>
+    </div>
+  </div>
+</div>
+<a id="dlink" class="sr" tabindex="-1" aria-hidden="true"></a>
+
+<script>
+(function(){
+"use strict";
+var $ = function(id){ return document.getElementById(id); };
+var LIM = 87 * Math.PI / 180;           // visible half-angle of the cylinder
+var DEFAULTS = { wrap:150, rot:0, extend:true, curveTop:-2, curveBot:2, edge:32, hl:12, hlPos:-38, hscale:100 };
+var state = {
+  label:null, labelPrev:null, bottle:null, bottlePrev:null,
+  labelName:"", bottleName:"",
+  wrap:150, rot:0, extend:true, curveTop:-2, curveBot:2, edge:32, hl:12, hlPos:-38, hscale:100,
+  cx:0.5, cy:0.575, size:62, showBottle:true, what:"label", guideUntil:0
+};
+
+function mk(w,h){ var c=document.createElement("canvas"); c.width=Math.max(1,Math.round(w)); c.height=Math.max(1,Math.round(h)); return c; }
+function rr(x,X,Y,W,H,r){ // rounded rect path, r = [tl,tr,br,bl]
+  x.beginPath(); x.moveTo(X+r[0],Y); x.lineTo(X+W-r[1],Y); x.quadraticCurveTo(X+W,Y,X+W,Y+r[1]);
+  x.lineTo(X+W,Y+H-r[2]); x.quadraticCurveTo(X+W,Y+H,X+W-r[2],Y+H); x.lineTo(X+r[3],Y+H);
+  x.quadraticCurveTo(X,Y+H,X,Y+H-r[3]); x.lineTo(X,Y+r[0]); x.quadraticCurveTo(X,Y,X+r[0],Y); x.closePath();
+}
+function scaled(src,maxW){ if(src.width<=maxW) return src; var c=mk(maxW,src.height*maxW/src.width); var x=c.getContext("2d"); x.imageSmoothingQuality="high"; x.drawImage(src,0,0,c.width,c.height); return c; }
+
+/* ---------- sample artwork so the tool opens in a working state ---------- */
+function sampleLabel(){
+  var c=mk(1500,900), x=c.getContext("2d");
+  x.fillStyle="#20242c"; x.fillRect(0,0,1500,900);
+  x.fillStyle="#fff"; x.font="600 44px Arial, Helvetica, sans-serif"; x.textBaseline="alphabetic";
+  x.fillText("YOUR BRAND",90,150);
+  x.font="800 150px Arial, Helvetica, sans-serif"; x.fillText("PRODUCT NAME",84,400);
+  x.fillRect(90,460,1320,5);
+  x.font="700 62px Arial, Helvetica, sans-serif"; x.fillText("PLANT EXTRACT",90,590); x.fillText("CAPSULES",90,668);
+  x.fillStyle="#d2202f"; x.fillRect(930,500,570,250);
+  x.fillStyle="#fff"; x.font="800 50px Arial, Helvetica, sans-serif"; x.fillText("PER SERVING:",975,590);
+  x.font="800 78px Arial, Helvetica, sans-serif"; x.fillText("1,000 MG",975,690);
+  x.font="700 36px Arial, Helvetica, sans-serif"; x.fillText("90 CAPSULES   •   DIETARY SUPPLEMENT   •   SAMPLE LABEL",90,840);
+  return c;
+}
+function sampleBottle(){
+  var c=mk(1000,1300), x=c.getContext("2d"), g;
+  g=x.createLinearGradient(190,0,810,0);
+  g.addColorStop(0,"#bfc5c8"); g.addColorStop(.1,"#e3e6e7"); g.addColorStop(.36,"#fbfbfb"); g.addColorStop(.7,"#eceeef"); g.addColorStop(.93,"#d3d7d9"); g.addColorStop(1,"#b7bdc0");
+  rr(x,190,235,620,1010,[110,110,64,64]); x.fillStyle=g; x.fill();
+  g=x.createLinearGradient(0,1150,0,1245); g.addColorStop(0,"rgba(120,128,132,0)"); g.addColorStop(1,"rgba(120,128,132,.28)");
+  rr(x,190,235,620,1010,[110,110,64,64]); x.fillStyle=g; x.fill();
+  g=x.createLinearGradient(285,0,715,0);
+  g.addColorStop(0,"#0b0c0e"); g.addColorStop(.3,"#34373c"); g.addColorStop(.55,"#1b1d20"); g.addColorStop(1,"#08090a");
+  rr(x,285,60,430,215,[26,26,10,10]); x.fillStyle=g; x.fill();
+  x.fillStyle="rgba(255,255,255,.07)"; x.fillRect(285,232,430,5);
+  return c;
+}
+
+/* ---------- the warp ---------- */
+function geom(src,p){
+  var W=src.width, A=p.wrap*Math.PI/180, rot=p.rot*Math.PI/180, R=W/A;
+  var tL=-LIM, tR=LIM;
+  if(!p.extend){ tL=Math.max(-LIM,rot-A/2); tR=Math.min(LIM,rot+A/2); }
+  return { W:W, H:src.height*p.hscale/100, A:A, rot:rot, R:R, tL:tL, tR:tR, xL:R*Math.sin(tL), xR:R*Math.sin(tR), full:p.wrap>=359.5, ok:(tR-tL)>0.02 };
+}
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+// Returns {canvas, cxp, Rp, oy, hpx}: cxp = bottle axis x inside the canvas, oy = y of the label's uncurved top edge.
+// Renders at 2x and scales down so the curved top and bottom edges come out smooth.
+function warp(src,p,s){
+  var g=geom(src,p); if(!g.ok) return null;
+  var ss=((g.xR-g.xL)*s*2<=8192 && g.H*s*2<=7600)?2:1;
+  var r=warpRaw(src,p,s*ss); if(!r||ss===1) return r;
+  var c=mk(r.canvas.width/ss,r.canvas.height/ss), x=c.getContext("2d");
+  x.imageSmoothingEnabled=true; x.imageSmoothingQuality="high"; x.drawImage(r.canvas,0,0,c.width,c.height);
+  return { canvas:c, cxp:r.cxp/ss, Rp:r.Rp/ss, oy:r.oy/ss, hpx:r.hpx/ss };
+}
+function warpRaw(src,p,s){
+  var g=geom(src,p); if(!g.ok) return null;
+  var W=g.W,H=g.H,R=g.R, cw=Math.max(1,Math.round((g.xR-g.xL)*s));
+  var kt=p.curveTop/100*2*R, kb=p.curveBot/100*2*R;
+  var c0=Math.min(Math.cos(g.tL),Math.cos(g.tR)), c1=(g.tL<=0&&g.tR>=0)?1:Math.max(Math.cos(g.tL),Math.cos(g.tR));
+  var topMin=Math.min(kt*c0,kt*c1), botMax=H+Math.max(kb*c0,kb*c1);
+  var oy=-topMin*s+1, c=mk(cw,Math.ceil((botMax-topMin)*s)+2), x=c.getContext("2d");
+  x.imageSmoothingEnabled=true; x.imageSmoothingQuality="high";
+  for(var i=0;i<cw;i++){
+    var ta=Math.asin(clamp((g.xL+i/s)/R,-1,1)), tb=Math.asin(clamp((g.xL+(i+1)/s)/R,-1,1));
+    var sa=W/2+(ta-g.rot)*R, sb=W/2+(tb-g.rot)*R;
+    if(g.full){ var sh=Math.floor(sa/W)*W; sa-=sh; sb-=sh; if(sb>W) sb=W; }
+    else if(p.extend){ if(sb<=1){sa=0;sb=1;} else if(sa>=W-1){sa=W-1;sb=W;} else {sa=Math.max(0,sa);sb=Math.min(W,sb);} }
+    else { if(sb<=0||sa>=W) continue; sa=Math.max(0,sa); sb=Math.min(W,sb); }
+    var cs=Math.cos((ta+tb)/2), y0=oy+kt*cs*s, y1=oy+(H+kb*cs)*s;
+    x.drawImage(src, sa, 0, Math.max(sb-sa,0.02), src.height, i, y0, 1, y1-y0);
+  }
+  var cxp=-g.xL*s, Rp=R*s, n, t, gr;
+  x.globalCompositeOperation="source-atop";
+  if(p.edge>0){
+    gr=x.createLinearGradient(cxp-Rp,0,cxp+Rp,0);
+    for(n=0;n<=64;n++){ t=-1+2*n/64; gr.addColorStop(n/64,"rgba(6,8,12,"+(p.edge/100*0.9*Math.pow(1-Math.sqrt(1-t*t),1.25)).toFixed(4)+")"); }
+    x.fillStyle=gr; x.fillRect(0,0,c.width,c.height);
+  }
+  if(p.hl>0){
+    gr=x.createLinearGradient(cxp-Rp,0,cxp+Rp,0);
+    var pos=Math.sin(p.hlPos*Math.PI/180);
+    for(n=0;n<=64;n++){ t=-1+2*n/64; var d=(t-pos)/0.2; gr.addColorStop(n/64,"rgba(255,255,255,"+(p.hl/100*Math.exp(-d*d)).toFixed(4)+")"); }
+    x.fillStyle=gr; x.fillRect(0,0,c.width,c.height);
+  }
+  x.globalCompositeOperation="source-over";
+  return { canvas:c, cxp:cxp, Rp:Rp, oy:oy, hpx:H*s };
+}
+
+/* ---------- compose ---------- */
+function withBottle(){ return state.showBottle && state.bottle; }
+// Draws bottle + warped label into ctx of size CW x CH. Returns the label result (or null).
+function compose(ctx,CW,CH,bottle,label,guides){
+  ctx.clearRect(0,0,CW,CH);
+  ctx.imageSmoothingQuality="high";
+  ctx.drawImage(bottle,0,0,CW,CH);
+  var g=geom(label,state); if(!g.ok) return null;
+  var Dpx=state.size/100*CW, r=warp(label,state,Dpx/(2*g.R)); if(!r) return null;
+  var ax=state.cx*CW, ay=state.cy*CH;
+  ctx.drawImage(r.canvas, ax-r.cxp, ay-(r.oy+r.hpx/2));
+  if(guides){
+    ctx.save(); ctx.strokeStyle="#0d9b82"; ctx.lineWidth=Math.max(1.5,CW/500); ctx.setLineDash([CW/60,CW/90]);
+    ctx.beginPath(); ctx.moveTo(ax-Dpx/2,0); ctx.lineTo(ax-Dpx/2,CH); ctx.moveTo(ax+Dpx/2,0); ctx.lineTo(ax+Dpx/2,CH); ctx.stroke(); ctx.restore();
+  }
+  return r;
+}
+function labelOnly(src,maxW){
+  var g=geom(src,state); if(!g.ok) return null;
+  return warp(src,state,Math.min(1,maxW/(g.xR-g.xL)));
+}
+
+var view=$("view"), vctx=view.getContext("2d"), pending=false;
+function schedule(){ if(pending) return; pending=true; requestAnimationFrame(function(){ pending=false; render(); }); }
+function render(){
+  var r=null;
+  if(withBottle()){
+    var b=state.bottlePrev; view.width=b.width; view.height=b.height;
+    r=compose(vctx,b.width,b.height,b,state.labelPrev,Date.now()<state.guideUntil);
+    view.classList.add("movable");
+  } else {
+    r=labelOnly(state.labelPrev,1500);
+    if(r){ view.width=r.canvas.width; view.height=r.canvas.height; vctx.clearRect(0,0,view.width,view.height); vctx.drawImage(r.canvas,0,0); }
+    else { view.width=600; view.height=300; vctx.clearRect(0,0,600,300); }
+    view.classList.remove("movable");
+  }
+  var g=geom(state.label,state), txt="";
+  if(!g.ok) txt="卷标转到瓶子背面了，把“左右转动”调回来";
+  else {
+    var e=labelOnly1x();
+    txt="导出卷标尺寸约 "+e.w+" × "+e.h+" px";
+  }
+  $("dims").textContent=txt;
+}
+function labelOnly1x(){ // size of the label-only export without rendering it
+  var g=geom(state.label,state), s=Math.min(1,8000/(g.xR-g.xL)), R=g.R;
+  var kt=state.curveTop/100*2*R, kb=state.curveBot/100*2*R;
+  var c0=Math.min(Math.cos(g.tL),Math.cos(g.tR)), c1=(g.tL<=0&&g.tR>=0)?1:Math.max(Math.cos(g.tL),Math.cos(g.tR));
+  var topMin=Math.min(kt*c0,kt*c1), botMax=g.H+Math.max(kb*c0,kb*c1);
+  return { w:Math.round((g.xR-g.xL)*s), h:Math.ceil((botMax-topMin)*s)+2 };
+}
+function guide(){ state.guideUntil=Date.now()+1400; setTimeout(schedule,1450); }
+
+/* ---------- controls ---------- */
+var sliders={ wrap:"°", rot:"°", curveTop:"", curveBot:"", edge:"", hl:"", hlPos:"°", size:"%", hscale:"%" };
+function syncOutputs(){
+  Object.keys(sliders).forEach(function(k){ $(k).value=state[k]; $(k+"_o").textContent=(+state[k]).toFixed((k==="curveTop"||k==="curveBot"||k==="size")?1:0)+sliders[k]; });
+  $("extend").checked=state.extend; $("showBottle").checked=state.showBottle;
+  var front=state.wrap<300; $("kindFront").setAttribute("aria-pressed",front); $("kindFull").setAttribute("aria-pressed",!front);
+  document.querySelectorAll("[data-view]").forEach(function(b){ var v=b.getAttribute("data-view").split(","); b.setAttribute("aria-pressed", +v[0]===+state.curveTop && +v[1]===+state.curveBot); });
+  var pb=!!withBottle(); $("placeBox").style.display=pb?"":"none"; $("exportNo").textContent=pb?"6":"5";
+  $("whatBoth").disabled=!pb; if(!pb && state.what==="both"){ state.what="label"; $("whatLabel").checked=true; }
+}
+Object.keys(sliders).forEach(function(k){
+  $(k).addEventListener("input",function(){ state[k]=+this.value; if(k==="size") guide(); syncOutputs(); schedule(); });
+});
+$("extend").addEventListener("change",function(){ state.extend=this.checked; schedule(); });
+$("showBottle").addEventListener("change",function(){ state.showBottle=this.checked; syncOutputs(); schedule(); });
+$("whitebg").addEventListener("change",function(){ $("stage").classList.toggle("white",this.checked); });
+$("kindFront").addEventListener("click",function(){ state.wrap=150; state.extend=true; state.rot=0; syncOutputs(); schedule(); });
+$("kindFull").addEventListener("click",function(){ state.wrap=360; state.extend=false; state.rot=0; syncOutputs(); schedule(); });
+document.querySelectorAll("[data-view]").forEach(function(b){ b.addEventListener("click",function(){ var v=b.getAttribute("data-view").split(","); state.curveTop=+v[0]; state.curveBot=+v[1]; syncOutputs(); schedule(); }); });
+document.querySelectorAll("input[name=what]").forEach(function(r){ r.addEventListener("change",function(){ if(this.checked) state.what=this.value; }); });
+$("reset").addEventListener("click",function(){ Object.keys(DEFAULTS).forEach(function(k){ state[k]=DEFAULTS[k]; }); syncOutputs(); schedule(); say("已恢复默认参数。"); });
+
+/* drag the label on the preview */
+var drag=null;
+view.addEventListener("pointerdown",function(e){ if(!withBottle()) return; drag={x:e.clientX,y:e.clientY,cx:state.cx,cy:state.cy}; try{view.setPointerCapture(e.pointerId);}catch(_){} });
+view.addEventListener("pointermove",function(e){ if(!drag) return; var b=view.getBoundingClientRect(); state.cx=clamp(drag.cx+(e.clientX-drag.x)/b.width,0,1); state.cy=clamp(drag.cy+(e.clientY-drag.y)/b.height,0,1); state.guideUntil=Date.now()+1400; schedule(); });
+function endDrag(){ if(drag){ drag=null; setTimeout(schedule,1450); } }
+view.addEventListener("pointerup",endDrag); view.addEventListener("pointercancel",endDrag);
+
+/* ---------- loading images ---------- */
+function say(t){ $("status").textContent=t; }
+function names(){
+  var a=state.labelName?("卷标："+state.labelName+"（"+state.label.width+" × "+state.label.height+" px）"):"卷标：示例";
+  var b=state.bottleName?("瓶子："+state.bottleName):"瓶子：示例";
+  $("names").textContent=a+"　"+b;
+}
+function setLabel(c,name){ state.label=scaled(c,8000); state.labelPrev=scaled(c,2400); state.labelName=name||""; names(); syncOutputs(); schedule(); }
+function setBottle(c,name){
+  state.bottle=scaled(c,6000); state.bottlePrev=scaled(c,1500); state.bottleName=name||""; state.showBottle=true;
+  if(name){ state.cx=0.5; state.cy=0.56; state.size=70; guide(); }
+  names(); syncOutputs(); schedule();
+}
+function loadFile(file,cb){
+  if(!file||!/^image\//.test(file.type)){ say("这个文件不是图片，请选 PNG 或 JPG。"); return; }
+  var url=URL.createObjectURL(file), img=new Image();
+  img.onload=function(){ var c=mk(img.naturalWidth,img.naturalHeight); c.getContext("2d").drawImage(img,0,0); URL.revokeObjectURL(url); cb(c,file.name); say(""); };
+  img.onerror=function(){ URL.revokeObjectURL(url); say("图片打不开，换一张 PNG 或 JPG 再试。"); };
+  img.src=url;
+}
+$("pickLabel").addEventListener("click",function(){ $("fileLabel").click(); });
+$("pickBottle").addEventListener("click",function(){ $("fileBottle").click(); });
+$("fileLabel").addEventListener("change",function(){ loadFile(this.files[0],setLabel); this.value=""; });
+$("fileBottle").addEventListener("change",function(){ loadFile(this.files[0],setBottle); this.value=""; });
+var stage=$("stage");
+["dragenter","dragover"].forEach(function(n){ stage.addEventListener(n,function(e){ e.preventDefault(); stage.classList.add("drop"); }); });
+["dragleave","drop"].forEach(function(n){ stage.addEventListener(n,function(e){ e.preventDefault(); stage.classList.remove("drop"); }); });
+stage.addEventListener("drop",function(e){ var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0]; if(f) loadFile(f,setLabel); });
+
+/* ---------- export ---------- */
+function buildExport(){
+  if(state.what==="both" && withBottle()){
+    var b=state.bottle, c=mk(b.width,b.height);
+    if(!compose(c.getContext("2d"),b.width,b.height,b,state.label,false)) return null;
+    return { canvas:c, name:"bottle-with-label.png" };
+  }
+  var r=labelOnly(state.label,8000);
+  return r?{ canvas:r.canvas, name:"label-curved.png" }:null;
+}
+function toBlob(c){ return new Promise(function(res,rej){ c.toBlob(function(b){ b?res(b):rej(new Error("toBlob")); },"image/png"); }); }
+var saverP=null;
+function saver(){
+  if(!saverP){ saverP=Promise.resolve(null); } // local build: the browser's own download is used
+  return saverP;
+}
+saver();
+function showResult(blob,name){
+  var url=URL.createObjectURL(blob), a=$("dlink");
+  try{ a.href=url; a.download=name; a.click(); }catch(_){}
+  $("resultImg").src=url; $("result").style.display="flex";
+}
+$("dl").addEventListener("click",async function(){
+  var ex=buildExport(); if(!ex){ say("现在没有可导出的卷标，把“左右转动”调回 0° 再试。"); return; }
+  say("正在生成…");
+  try{
+    var blob=await toBlob(ex.canvas), s=await saver();
+    if(s){
+      try{ await s.save({filename:ex.name,data:blob}); say("已保存 "+ex.name+"（"+ex.canvas.width+" × "+ex.canvas.height+" px）。"); }
+      catch(err){ if(err&&err.code==="declined"){ say("已取消保存。"); } else { showResult(blob,ex.name); say("这里不能直接保存，图片已显示在下方。"); } }
+    } else { showResult(blob,ex.name); say("图片已生成（"+ex.canvas.width+" × "+ex.canvas.height+" px）。"); }
+  }catch(e){ say("生成失败：图片可能太大，换一张小一点的卷标再试。"); }
+});
+$("copy").addEventListener("click",function(){
+  var ex=buildExport(); if(!ex){ say("现在没有可复制的卷标。"); return; }
+  try{
+    var item=new ClipboardItem({"image/png":toBlob(ex.canvas)});
+    navigator.clipboard.write([item]).then(function(){ say("已复制，到 Canva 里按 Ctrl+V（Mac 按 ⌘V）粘贴。"); },function(){ say("浏览器不允许复制图片，请用“下载 PNG”。"); });
+  }catch(e){ say("浏览器不允许复制图片，请用“下载 PNG”。"); }
+});
+
+/* ---------- start ---------- */
+var sl=sampleLabel(), sb=sampleBottle();
+state.label=sl; state.labelPrev=sl; state.bottle=sb; state.bottlePrev=sb;
+syncOutputs(); render();
+window.__labelTool={ state:state, setLabel:setLabel, setBottle:setBottle, buildExport:buildExport, render:render, sync:syncOutputs };
+})();
+</script>
+</body>
+</html>
