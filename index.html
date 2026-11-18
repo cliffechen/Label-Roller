@@ -74,6 +74,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0;height:22px}
 .check{display:flex;gap:8px;align-items:flex-start;font-size:14px}
 .check input{margin-top:4px;accent-color:var(--accent)}
 .radio{display:flex;flex-direction:column;gap:6px}
+.clearbox{display:flex;flex-direction:column;gap:12px;border-left:2px solid var(--accent-soft);padding-left:12px}
 .presetname input{font:inherit;font-size:14px;width:100%;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)}
 #status{min-height:1.5em;font-size:13px;color:var(--muted);margin:0}
 #result{display:none;flex-direction:column;gap:8px}
@@ -115,6 +116,16 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0;height:22px}
           <div class="name" id="names">当前显示的是示例卷标和默认瓶子。也可以把图片直接拖到左边预览区。</div>
         </div>
         <label class="check"><input type="checkbox" id="showBottle" checked> 预览时显示瓶子（用来对位，导出卷标时不会带上）</label>
+        <div class="chips" role="group" aria-label="卷标材质">
+          <button class="chip" type="button" data-mat="paper" aria-pressed="true">普通卷标</button>
+          <button class="chip" type="button" data-mat="clear" aria-pressed="false">透明卷标</button>
+        </div>
+        <div id="clearBox" class="clearbox">
+          <label class="row"><span>底膜透明度</span><input type="range" id="clearT" min="0" max="100" step="1" value="90"><output id="clearT_o"></output></label>
+          <label class="row"><span>膜边缘</span><input type="range" id="filmEdge" min="0" max="100" step="1" value="35"><output id="filmEdge_o"></output></label>
+          <label class="check"><input type="checkbox" id="whiteToAlpha"> 卷标图是白底的：把白色当作透明</label>
+          <p class="hint">透明卷标：印刷的文字和图案保持不透明，没印的地方透出瓶子。底膜透明度 100% 是完全透明；膜边缘是透明膜四周那圈淡淡的亮边。卷标 PNG 最好导出成透明背景，白底的就勾上面这项。</p>
+        </div>
       </fieldset>
 
       <fieldset>
@@ -217,12 +228,12 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0;height:22px}
 var $ = function(id){ return document.getElementById(id); };
 var LIM = 87 * Math.PI / 180;           // visible half-angle of the cylinder
 var DEFAULTS = { wrap:150, rot:0, extend:true, curveTop:-2, curveBot:2, edge:12, hl:0, hlPos:-38, hscale:100, size:62, cx:0.5075, cy:0.60,
-  lightSrc:"bottle", lightAmt:80, soft:45, lightFlip:false, grain:30, cropL:0, cropR:0, cTL:0, cTR:0, cBL:0, cBR:0, cornerLink:true };
+  lightSrc:"bottle", lightAmt:80, soft:45, lightFlip:false, grain:30, cropL:0, cropR:0, cTL:0, cTR:0, cBL:0, cBR:0, cornerLink:true, clear:false, clearT:90, filmEdge:35, whiteToAlpha:false };
 var state = {
   label:null, labelPrev:null, bottle:null, bottlePrev:null,
   labelName:"", bottleName:"",
   wrap:150, rot:0, extend:true, curveTop:-2, curveBot:2, edge:12, hl:0, hlPos:-38, hscale:100,
-  lightSrc:"bottle", lightAmt:80, soft:45, lightFlip:false, grain:30, cropL:0, cropR:0, cTL:0, cTR:0, cBL:0, cBR:0, cornerLink:true, bottleId:0,
+  lightSrc:"bottle", lightAmt:80, soft:45, lightFlip:false, grain:30, cropL:0, cropR:0, cTL:0, cTR:0, cBL:0, cBR:0, cornerLink:true, clear:false, clearT:90, filmEdge:35, whiteToAlpha:false, bottleId:0,
   cx:0.5075, cy:0.60, size:62, showBottle:true, what:"label", guideUntil:0
 };
 
@@ -276,14 +287,75 @@ function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
 function warp(src,p,s){
   var g=geom(src,p); if(!g.ok) return null;
   var ss=((g.xR-g.xL)*s*2<=8192 && g.H*s*2<=7600)?2:1;
+  if(!p.clear){
+    var r=warpPass(src,p,s,ss); if(!r) return null;
+    shadeLabel(r,p);
+    return roundCorners(cropLabel(r,p),p);
+  }
+  // Clear label: the printed content and the label's outline are warped separately; the outline
+  // (cropped and rounded) then masks the content and supplies the film's faint edge.
+  var rc=warpPass(clearSource(src,p),p,s,ss); if(!rc) return null;
+  shadeLabel(rc,p); rc=cropLabel(rc,p);
+  var rm=warpPass(solidSource(src),p,s,ss); rm=roundCorners(cropLabel(rm,p),p);
+  applyFilmMask(rc,rm,p,g);
+  return rc;
+}
+function warpPass(src,p,s,ss){
   var r=warpRaw(src,p,s*ss); if(!r) return null;
   if(ss>1){
     var c=mk(r.canvas.width/ss,r.canvas.height/ss), x=c.getContext("2d");
     x.imageSmoothingEnabled=true; x.imageSmoothingQuality="high"; x.drawImage(r.canvas,0,0,c.width,c.height);
     r={ canvas:c, cxp:r.cxp/ss, Rp:r.Rp/ss, oy:r.oy/ss, hpx:r.hpx/ss };
   }
-  shadeLabel(r,p);
-  return roundCorners(cropLabel(r,p),p);
+  return r;
+}
+
+/* ---------- clear labels ---------- */
+var inkCache={src:null,w2a:null,val:null}, clearCache={ink:null,t:null,val:null}, solidCache=null;
+// Turns white into transparency, keeping anti-aliased edges and tints (GIMP's colour-to-alpha with white).
+function whiteToAlphaCanvas(src){
+  var c=mk(src.width,src.height), x=c.getContext("2d"); x.drawImage(src,0,0);
+  var id=x.getImageData(0,0,c.width,c.height), D=id.data;
+  for(var k=0;k<D.length;k+=4){
+    var r=D[k],g=D[k+1],b=D[k+2], a=Math.max(255-r,255-g,255-b)/255;
+    if(a<=0.002){ D[k+3]=0; continue; }
+    D[k]=255-(255-r)/a; D[k+1]=255-(255-g)/a; D[k+2]=255-(255-b)/a; D[k+3]=D[k+3]*a;
+  }
+  x.putImageData(id,0,0); return c;
+}
+function inkSource(src,p){
+  if(inkCache.src!==src||inkCache.w2a!==!!p.whiteToAlpha){ inkCache={src:src,w2a:!!p.whiteToAlpha,val:p.whiteToAlpha?whiteToAlphaCanvas(src):src}; }
+  return inkCache.val;
+}
+function clearSource(src,p){
+  var ink=inkSource(src,p);
+  if(clearCache.ink!==ink||clearCache.t!==p.clearT){
+    var c=mk(src.width,src.height), x=c.getContext("2d");
+    var f=(100-p.clearT)/100; if(f>0){ x.fillStyle="rgba(255,255,255,"+f.toFixed(3)+")"; x.fillRect(0,0,c.width,c.height); }
+    x.drawImage(ink,0,0); clearCache={ink:ink,t:p.clearT,val:c};
+  }
+  return clearCache.val;
+}
+function solidSource(src){
+  if(!solidCache||solidCache.width!==src.width||solidCache.height!==src.height){ solidCache=mk(src.width,src.height); var x=solidCache.getContext("2d"); x.fillStyle="#fff"; x.fillRect(0,0,src.width,src.height); }
+  return solidCache;
+}
+function applyFilmMask(rc,rm,p,g){
+  var c=rc.canvas, w=c.width, h=c.height, x=c.getContext("2d");
+  x.globalCompositeOperation="destination-in"; x.drawImage(rm.canvas,0,0); x.globalCompositeOperation="source-over";
+  var e=p.filmEdge/100*0.55; if(e<=0) return;
+  var M=rm.canvas.getContext("2d").getImageData(0,0,w,h).data, id=x.getImageData(0,0,w,h), D=id.data;
+  var kpx=Math.max(1,Math.round(rc.hpx*0.0025));
+  // the canvas sides are only real label edges where the label ends there (cropped, or not wrapped to the silhouette)
+  var leftEdge=p.cropL>0||(!p.extend&&!g.full&&g.tL>-LIM+1e-3), rightEdge=p.cropR>0||(!p.extend&&!g.full&&g.tR<LIM-1e-3);
+  function inside(xx,yy){ if(yy<0||yy>=h) return false; if(xx<0) return !leftEdge; if(xx>=w) return !rightEdge; return M[(yy*w+xx)*4+3]>127; }
+  for(var y=0;y<h;y++) for(var xx=0;xx<w;xx++){
+    var k=(y*w+xx)*4; if(M[k+3]<=127) continue;
+    if(inside(xx-kpx,y)&&inside(xx+kpx,y)&&inside(xx,y-kpx)&&inside(xx,y+kpx)) continue;
+    var a=D[k+3]/255, an=e+a*(1-e);
+    D[k]=(255*e+D[k]*a*(1-e))/an; D[k+1]=(255*e+D[k+1]*a*(1-e))/an; D[k+2]=(255*e+D[k+2]*a*(1-e))/an; D[k+3]=an*255*(M[k+3]/255);
+  }
+  x.putImageData(id,0,0);
 }
 // Rounds the four visible corners with circular arcs, like a die-cut label. Each radius is a share of the label height.
 function roundCorners(r,p){
@@ -487,10 +559,12 @@ function labelOnly1x(){ // size of the label-only export without rendering it
 function guide(){ state.guideUntil=Date.now()+1400; setTimeout(schedule,1450); }
 
 /* ---------- controls ---------- */
-var sliders={ wrap:"°", rot:"°", curveTop:"", curveBot:"", edge:"", hl:"", hlPos:"°", size:"%", hscale:"%", lightAmt:"", soft:"", grain:"", cropL:"%", cropR:"%", cTL:"%", cTR:"%", cBL:"%", cBR:"%" };
+var sliders={ wrap:"°", rot:"°", curveTop:"", curveBot:"", edge:"", hl:"", hlPos:"°", size:"%", hscale:"%", lightAmt:"", soft:"", grain:"", cropL:"%", cropR:"%", cTL:"%", cTR:"%", cBL:"%", cBR:"%", clearT:"%", filmEdge:"" };
 function syncOutputs(){
   Object.keys(sliders).forEach(function(k){ $(k).value=state[k]; $(k+"_o").textContent=(+state[k]).toFixed((k==="curveTop"||k==="curveBot"||k==="size"||k==="cropL"||k==="cropR"||k.charAt(0)==="c"&&k.length===3)?1:0)+sliders[k]; });
   $("extend").checked=state.extend; $("showBottle").checked=state.showBottle; $("cornerLink").checked=state.cornerLink;
+  $("whiteToAlpha").checked=state.whiteToAlpha; $("clearBox").style.display=state.clear?"":"none";
+  document.querySelectorAll("[data-mat]").forEach(function(b){ b.setAttribute("aria-pressed", (b.getAttribute("data-mat")==="clear")===!!state.clear); });
   var front=state.wrap<300; $("kindFront").setAttribute("aria-pressed",front); $("kindFull").setAttribute("aria-pressed",!front);
   document.querySelectorAll("[data-view]").forEach(function(b){ var v=b.getAttribute("data-view").split(","); b.setAttribute("aria-pressed", +v[0]===+state.curveTop && +v[1]===+state.curveBot); });
   document.querySelectorAll("[data-light]").forEach(function(b){ b.setAttribute("aria-pressed", b.getAttribute("data-light")===state.lightSrc); });
@@ -510,6 +584,8 @@ Object.keys(sliders).forEach(function(k){
 });
 var CORNERS=["cTL","cTR","cBL","cBR"];
 $("cornerLink").addEventListener("change",function(){ state.cornerLink=this.checked; });
+$("whiteToAlpha").addEventListener("change",function(){ state.whiteToAlpha=this.checked; schedule(); });
+document.querySelectorAll("[data-mat]").forEach(function(b){ b.addEventListener("click",function(){ state.clear=b.getAttribute("data-mat")==="clear"; syncOutputs(); schedule(); }); });
 $("extend").addEventListener("change",function(){ state.extend=this.checked; schedule(); });
 $("lightFlip").addEventListener("change",function(){ state.lightFlip=this.checked; schedule(); });
 $("autofit").addEventListener("click",function(){
@@ -605,10 +681,10 @@ $("copy").addEventListener("click",function(){
 });
 
 /* ---------- presets ---------- */
-var PKEYS=["wrap","rot","extend","curveTop","curveBot","lightSrc","lightAmt","soft","lightFlip","edge","hl","hlPos","grain","cropL","cropR","cornerLink","cTL","cTR","cBL","cBR","size","hscale","cx","cy"];
+var PKEYS=["wrap","rot","extend","curveTop","curveBot","lightSrc","lightAmt","soft","lightFlip","edge","hl","hlPos","grain","cropL","cropR","cornerLink","cTL","cTR","cBL","cBR","clear","clearT","filmEdge","whiteToAlpha","size","hscale","cx","cy"];
 var LIGHTNAME={bottle:"跟随瓶子图",studio:"棚拍侧光",none:"只用滑杆"};
-var PLABEL={wrap:["环绕角度","°"],rot:["左右转动","°"],extend:["用两侧颜色补满瓶身",""],curveTop:["上沿弧度",""],curveBot:["下沿弧度",""],cropL:["左侧裁掉","%"],cornerLink:["四个圆角一起调",""],cTL:["左上圆角","%"],cTR:["右上圆角","%"],cBL:["左下圆角","%"],cBR:["右下圆角","%"],cropR:["右侧裁掉","%"],lightSrc:["光影来源",""],lightAmt:["光影强度",""],soft:["柔和度",""],lightFlip:["主光放在左边",""],grain:["纸张颗粒",""],edge:["两侧暗部",""],hl:["高光强度",""],hlPos:["高光位置","°"],size:["瓶身宽度","%"],hscale:["高度微调","%"],cx:["卷标中心 X（占瓶子图宽度）",""],cy:["卷标中心 Y（占瓶子图高度）",""]};
-var PRANGE={cTL:[0,8],cTR:[0,8],cBL:[0,8],cBR:[0,8],cropL:[0,40],cropR:[0,40],lightAmt:[0,100],soft:[0,100],grain:[0,100],wrap:[40,360],rot:[-180,180],curveTop:[-12,12],curveBot:[-12,12],edge:[0,100],hl:[0,60],hlPos:[-90,90],size:[20,100],hscale:[60,140],cx:[0,1],cy:[0,1]};
+var PLABEL={wrap:["环绕角度","°"],rot:["左右转动","°"],extend:["用两侧颜色补满瓶身",""],curveTop:["上沿弧度",""],curveBot:["下沿弧度",""],cropL:["左侧裁掉","%"],cornerLink:["四个圆角一起调",""],clear:["透明卷标",""],clearT:["底膜透明度","%"],filmEdge:["膜边缘",""],whiteToAlpha:["白色当作透明",""],cTL:["左上圆角","%"],cTR:["右上圆角","%"],cBL:["左下圆角","%"],cBR:["右下圆角","%"],cropR:["右侧裁掉","%"],lightSrc:["光影来源",""],lightAmt:["光影强度",""],soft:["柔和度",""],lightFlip:["主光放在左边",""],grain:["纸张颗粒",""],edge:["两侧暗部",""],hl:["高光强度",""],hlPos:["高光位置","°"],size:["瓶身宽度","%"],hscale:["高度微调","%"],cx:["卷标中心 X（占瓶子图宽度）",""],cy:["卷标中心 Y（占瓶子图高度）",""]};
+var PRANGE={clearT:[0,100],filmEdge:[0,100],cTL:[0,8],cTR:[0,8],cBL:[0,8],cBR:[0,8],cropL:[0,40],cropR:[0,40],lightAmt:[0,100],soft:[0,100],grain:[0,100],wrap:[40,360],rot:[-180,180],curveTop:[-12,12],curveBot:[-12,12],edge:[0,100],hl:[0,60],hlPos:[-90,90],size:[20,100],hscale:[60,140],cx:[0,1],cy:[0,1]};
 var MARK="----- 以下内容供工具读取，请勿修改 -----";
 function psay(t){ $("presetStatus").textContent=t; }
 function pad(n){ return (n<10?"0":"")+n; }
@@ -640,7 +716,7 @@ function applyParams(pr){
   if("corner" in pr && !("cTL" in pr)){ var cv=clamp(+pr.corner||0,0,8); CORNERS.forEach(function(c){ state[c]=cv; }); n++; }
   PKEYS.forEach(function(k){
     if(!(k in pr)) return;
-    if(k==="extend"||k==="lightFlip"||k==="cornerLink"){ state[k]=!!pr[k]; n++; return; }
+    if(k==="extend"||k==="lightFlip"||k==="cornerLink"||k==="clear"||k==="whiteToAlpha"){ state[k]=!!pr[k]; n++; return; }
     if(k==="lightSrc"){ if(LIGHTNAME[pr[k]]){ state.lightSrc=pr[k]; n++; } return; }
     var v=+pr[k]; if(!isFinite(v)) return;
     state[k]=clamp(v,PRANGE[k][0],PRANGE[k][1]); n++;
