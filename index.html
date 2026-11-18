@@ -303,7 +303,7 @@ function roundCorners(r,p){
         var ry=rad[dir+","+k], m=ry; if(ry<0.75) continue;
         var dx=(ry-j-0.5)/ry; if(dx<=0) continue;
         for(var q=-3;q<Math.ceil(ry);q++){ // q<0 also clears the soft anti-aliased rows just outside the edge
-          var y=k===0?sp[0]+q:sp[1]-q; if(y<0||y>=h) break;
+          var y=k===0?sp[0]+q:sp[1]-q; if(y<0||y>=h) continue; // rows outside the canvas are skipped, not the whole corner
           var dy=(ry-q-0.5)/ry; if(dy<=0) break;
           var d=Math.sqrt(dx*dx+dy*dy); if(d<=1) continue;
           var cov=clamp((1-d)*m+0.5,0,1), i=(y*w+col)*4+3; D[i]=D[i]*cov;
