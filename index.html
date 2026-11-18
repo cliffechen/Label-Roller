@@ -128,8 +128,8 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0;height:22px}
         <label class="check"><input type="checkbox" id="extend" checked> 用卷标两侧的颜色补满瓶身（让卷标看起来绕到瓶子背面）</label>
         <label class="row"><span>左侧裁掉</span><input type="range" id="cropL" min="0" max="40" step="0.1" value="0"><output id="cropL_o"></output></label>
         <label class="row"><span>右侧裁掉</span><input type="range" id="cropR" min="0" max="40" step="0.1" value="0"><output id="cropR_o"></output></label>
-        <label class="row"><span>卷标圆角</span><input type="range" id="corner" min="0" max="25" step="0.5" value="0"><output id="corner_o"></output></label>
-        <p class="hint">卷标圆角按卷标高度的百分比计算，换尺寸也保持一致。越靠近瓶身两侧，圆角会按透视自然变窄。</p>
+        <label class="row"><span>卷标圆角</span><input type="range" id="corner" min="0" max="8" step="0.1" value="0"><output id="corner_o"></output></label>
+        <p class="hint">卷标圆角按卷标高度的百分比计算，换尺寸也保持一致。真实模切卷标一般在 1%–3%。</p>
         <p class="hint">环绕角度是这张平铺图在瓶身上占的圈数。角度越大，两侧压缩越明显；正面卷标一般在 120°–160°。</p>
       </fieldset>
 
@@ -281,8 +281,7 @@ function warp(src,p,s){
   shadeLabel(r,p);
   return roundCorners(cropLabel(r,p),p);
 }
-// Rounds the four visible corners. The radius is a share of the label height; horizontally it is
-// squeezed by the cylinder's foreshortening at that edge, so corners near the sides look like real ones.
+// Rounds the four visible corners with circular arcs, like a die-cut label. The radius is a share of the label height.
 function roundCorners(r,p){
   var ry=(p.corner||0)/100*r.hpx; if(ry<0.75) return r;
   var c=r.canvas, w=c.width, h=c.height, x=c.getContext("2d"), id=x.getImageData(0,0,w,h), D=id.data;
@@ -290,7 +289,7 @@ function roundCorners(r,p){
   function span(col){ var t=-1,b=-1,y; for(y=0;y<h;y++) if(D[(y*w+col)*4+3]>127){ t=y; break; } for(y=h-1;y>=0;y--) if(D[(y*w+col)*4+3]>127){ b=y; break; } return [t,b]; }
   [1,-1].forEach(function(dir){
     var ec=dir>0?0:w-1; while(ec>=0&&ec<w&&!colHas(ec)) ec+=dir; if(ec<0||ec>=w) return;
-    var t=clamp((ec+0.5-r.cxp)/r.Rp,-1,1), rx=Math.max(0.75,ry*Math.sqrt(Math.max(0.03,1-t*t))), m=Math.min(rx,ry);
+    var rx=ry, m=ry;
     for(var j=0;j<Math.ceil(rx);j++){
       var col=ec+dir*j; if(col<0||col>=w) break;
       var sp=span(col); if(sp[0]<0) continue;
@@ -596,7 +595,7 @@ $("copy").addEventListener("click",function(){
 var PKEYS=["wrap","rot","extend","curveTop","curveBot","lightSrc","lightAmt","soft","lightFlip","edge","hl","hlPos","grain","cropL","cropR","corner","size","hscale","cx","cy"];
 var LIGHTNAME={bottle:"跟随瓶子图",studio:"棚拍侧光",none:"只用滑杆"};
 var PLABEL={wrap:["环绕角度","°"],rot:["左右转动","°"],extend:["用两侧颜色补满瓶身",""],curveTop:["上沿弧度",""],curveBot:["下沿弧度",""],cropL:["左侧裁掉","%"],corner:["卷标圆角","%"],cropR:["右侧裁掉","%"],lightSrc:["光影来源",""],lightAmt:["光影强度",""],soft:["柔和度",""],lightFlip:["主光放在左边",""],grain:["纸张颗粒",""],edge:["两侧暗部",""],hl:["高光强度",""],hlPos:["高光位置","°"],size:["瓶身宽度","%"],hscale:["高度微调","%"],cx:["卷标中心 X（占瓶子图宽度）",""],cy:["卷标中心 Y（占瓶子图高度）",""]};
-var PRANGE={corner:[0,25],cropL:[0,40],cropR:[0,40],lightAmt:[0,100],soft:[0,100],grain:[0,100],wrap:[40,360],rot:[-180,180],curveTop:[-12,12],curveBot:[-12,12],edge:[0,100],hl:[0,60],hlPos:[-90,90],size:[20,100],hscale:[60,140],cx:[0,1],cy:[0,1]};
+var PRANGE={corner:[0,8],cropL:[0,40],cropR:[0,40],lightAmt:[0,100],soft:[0,100],grain:[0,100],wrap:[40,360],rot:[-180,180],curveTop:[-12,12],curveBot:[-12,12],edge:[0,100],hl:[0,60],hlPos:[-90,90],size:[20,100],hscale:[60,140],cx:[0,1],cy:[0,1]};
 var MARK="----- 以下内容供工具读取，请勿修改 -----";
 function psay(t){ $("presetStatus").textContent=t; }
 function pad(n){ return (n<10?"0":"")+n; }
