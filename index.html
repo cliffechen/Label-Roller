@@ -126,6 +126,8 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0;height:22px}
         <label class="row"><span>环绕角度</span><input type="range" id="wrap" min="40" max="360" step="1" value="150"><output id="wrap_o"></output></label>
         <label class="row"><span>左右转动</span><input type="range" id="rot" min="-180" max="180" step="1" value="0"><output id="rot_o"></output></label>
         <label class="check"><input type="checkbox" id="extend" checked> 用卷标两侧的颜色补满瓶身（让卷标看起来绕到瓶子背面）</label>
+        <label class="row"><span>左侧裁掉</span><input type="range" id="cropL" min="0" max="40" step="0.1" value="0"><output id="cropL_o"></output></label>
+        <label class="row"><span>右侧裁掉</span><input type="range" id="cropR" min="0" max="40" step="0.1" value="0"><output id="cropR_o"></output></label>
         <p class="hint">环绕角度是这张平铺图在瓶身上占的圈数。角度越大，两侧压缩越明显；正面卷标一般在 120°–160°。</p>
       </fieldset>
 
@@ -162,9 +164,11 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0;height:22px}
 
       <fieldset id="placeBox">
         <legend><b>5</b>对位</legend>
+        <div class="btns"><button class="btn primary" type="button" id="autofit">自动贴合瓶身</button></div>
+        <p class="hint" id="fitNote">自动找出瓶子在卷标高度处的左右边缘，让卷标居中、宽度刚好贴住瓶身。</p>
         <label class="row"><span>瓶身宽度</span><input type="range" id="size" min="20" max="100" step="0.1" value="62"><output id="size_o"></output></label>
         <label class="row"><span>高度微调</span><input type="range" id="hscale" min="60" max="140" step="0.5" value="100"><output id="hscale_o"></output></label>
-        <p class="hint">在预览图上拖动可以移动卷标。把瓶身宽度调到虚线贴住瓶子左右边缘。</p>
+        <p class="hint">在预览图上拖动可以移动卷标。卷标左右没对齐时，先点“自动贴合瓶身”，比手动拖更准。</p>
       </fieldset>
 
       <fieldset>
@@ -207,12 +211,12 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0;height:22px}
 var $ = function(id){ return document.getElementById(id); };
 var LIM = 87 * Math.PI / 180;           // visible half-angle of the cylinder
 var DEFAULTS = { wrap:150, rot:0, extend:true, curveTop:-2, curveBot:2, edge:12, hl:0, hlPos:-38, hscale:100, size:62, cx:0.5075, cy:0.60,
-  lightSrc:"bottle", lightAmt:80, soft:45, lightFlip:false, grain:30 };
+  lightSrc:"bottle", lightAmt:80, soft:45, lightFlip:false, grain:30, cropL:0, cropR:0 };
 var state = {
   label:null, labelPrev:null, bottle:null, bottlePrev:null,
   labelName:"", bottleName:"",
   wrap:150, rot:0, extend:true, curveTop:-2, curveBot:2, edge:12, hl:0, hlPos:-38, hscale:100,
-  lightSrc:"bottle", lightAmt:80, soft:45, lightFlip:false, grain:30, bottleId:0,
+  lightSrc:"bottle", lightAmt:80, soft:45, lightFlip:false, grain:30, cropL:0, cropR:0, bottleId:0,
   cx:0.5075, cy:0.60, size:62, showBottle:true, what:"label", guideUntil:0
 };
 
@@ -273,7 +277,35 @@ function warp(src,p,s){
     r={ canvas:c, cxp:r.cxp/ss, Rp:r.Rp/ss, oy:r.oy/ss, hpx:r.hpx/ss };
   }
   shadeLabel(r,p);
-  return r;
+  return cropLabel(r,p);
+}
+// Trims a share of the label's width off each side; the trimmed label stays in the same place on the bottle.
+function cropLabel(r,p){
+  if(!(p.cropL>0||p.cropR>0)) return r;
+  var w=r.canvas.width, cl=Math.round(w*p.cropL/100), cr=Math.round(w*p.cropR/100), nw=w-cl-cr;
+  if(nw<4) nw=4;
+  var c=mk(nw,r.canvas.height); c.getContext("2d").drawImage(r.canvas,-cl,0);
+  return { canvas:c, cxp:r.cxp-cl, Rp:r.Rp, oy:r.oy, hpx:r.hpx };
+}
+
+// Finds the bottle's left and right edges at the label's height by scanning in from the image sides.
+function findBottleEdges(){
+  var b=state.bottlePrev, BW=b.width, BH=b.height, x=b.getContext("2d");
+  var g=geom(state.label,state); if(!g.ok) return null;
+  var D=state.size/100*BW, hb=g.H*D/(2*g.R), ay=state.cy*BH;
+  var corners=x.getImageData(0,0,BW,BH);
+  function lum(xx,yy){ var k=(yy*BW+xx)*4, d=corners.data; return 0.299*d[k]+0.587*d[k+1]+0.114*d[k+2]; }
+  var bg=median([lum(1,1),lum(BW-2,1),lum(1,BH-2),lum(BW-2,BH-2),lum(Math.floor(BW/2),1)]);
+  var Ls=[], Rs=[];
+  for(var n=-6;n<=6;n++){
+    var yy=Math.round(clamp(ay+n*hb*0.06,0,BH-1)), l=-1, r=-1, run=0, xx;
+    for(xx=0;xx<BW;xx++){ if(Math.abs(lum(xx,yy)-bg)>12){ if(++run>=3){ l=xx-2; break; } } else run=0; }
+    run=0;
+    for(xx=BW-1;xx>=0;xx--){ if(Math.abs(lum(xx,yy)-bg)>12){ if(++run>=3){ r=xx+2; break; } } else run=0; }
+    if(l>=0&&r>l) { Ls.push(l); Rs.push(r); }
+  }
+  if(Ls.length<4) return null;
+  return { l:median(Ls), r:median(Rs)+1, BW:BW };
 }
 
 /* ---------- lighting ----------
@@ -420,9 +452,9 @@ function labelOnly1x(){ // size of the label-only export without rendering it
 function guide(){ state.guideUntil=Date.now()+1400; setTimeout(schedule,1450); }
 
 /* ---------- controls ---------- */
-var sliders={ wrap:"°", rot:"°", curveTop:"", curveBot:"", edge:"", hl:"", hlPos:"°", size:"%", hscale:"%", lightAmt:"", soft:"", grain:"" };
+var sliders={ wrap:"°", rot:"°", curveTop:"", curveBot:"", edge:"", hl:"", hlPos:"°", size:"%", hscale:"%", lightAmt:"", soft:"", grain:"", cropL:"%", cropR:"%" };
 function syncOutputs(){
-  Object.keys(sliders).forEach(function(k){ $(k).value=state[k]; $(k+"_o").textContent=(+state[k]).toFixed((k==="curveTop"||k==="curveBot"||k==="size")?1:0)+sliders[k]; });
+  Object.keys(sliders).forEach(function(k){ $(k).value=state[k]; $(k+"_o").textContent=(+state[k]).toFixed((k==="curveTop"||k==="curveBot"||k==="size"||k==="cropL"||k==="cropR")?1:0)+sliders[k]; });
   $("extend").checked=state.extend; $("showBottle").checked=state.showBottle;
   var front=state.wrap<300; $("kindFront").setAttribute("aria-pressed",front); $("kindFull").setAttribute("aria-pressed",!front);
   document.querySelectorAll("[data-view]").forEach(function(b){ var v=b.getAttribute("data-view").split(","); b.setAttribute("aria-pressed", +v[0]===+state.curveTop && +v[1]===+state.curveBot); });
@@ -439,6 +471,12 @@ Object.keys(sliders).forEach(function(k){
 });
 $("extend").addEventListener("change",function(){ state.extend=this.checked; schedule(); });
 $("lightFlip").addEventListener("change",function(){ state.lightFlip=this.checked; schedule(); });
+$("autofit").addEventListener("click",function(){
+  var e=findBottleEdges();
+  if(!e){ $("fitNote").textContent="没找到瓶子的左右边缘：瓶子图需要是纯色背景，并且先把卷标大致拖到瓶身上。"; return; }
+  state.cx=(e.l+e.r)/2/e.BW; state.size=clamp((e.r-e.l)/e.BW*100,20,100); state.cropL=0; state.cropR=0;
+  $("fitNote").textContent="已贴合：卷标居中，宽度 "+state.size.toFixed(1)+"%，左右裁切已归零。"; guide(); syncOutputs(); schedule();
+});
 document.querySelectorAll("[data-light]").forEach(function(b){ b.addEventListener("click",function(){ state.lightSrc=b.getAttribute("data-light"); syncOutputs(); schedule(); }); });
 $("showBottle").addEventListener("change",function(){ state.showBottle=this.checked; syncOutputs(); schedule(); });
 $("whitebg").addEventListener("change",function(){ $("stage").classList.toggle("white",this.checked); });
@@ -526,10 +564,10 @@ $("copy").addEventListener("click",function(){
 });
 
 /* ---------- presets ---------- */
-var PKEYS=["wrap","rot","extend","curveTop","curveBot","lightSrc","lightAmt","soft","lightFlip","edge","hl","hlPos","grain","size","hscale","cx","cy"];
+var PKEYS=["wrap","rot","extend","curveTop","curveBot","lightSrc","lightAmt","soft","lightFlip","edge","hl","hlPos","grain","cropL","cropR","size","hscale","cx","cy"];
 var LIGHTNAME={bottle:"跟随瓶子图",studio:"棚拍侧光",none:"只用滑杆"};
-var PLABEL={wrap:["环绕角度","°"],rot:["左右转动","°"],extend:["用两侧颜色补满瓶身",""],curveTop:["上沿弧度",""],curveBot:["下沿弧度",""],lightSrc:["光影来源",""],lightAmt:["光影强度",""],soft:["柔和度",""],lightFlip:["主光放在左边",""],grain:["纸张颗粒",""],edge:["两侧暗部",""],hl:["高光强度",""],hlPos:["高光位置","°"],size:["瓶身宽度","%"],hscale:["高度微调","%"],cx:["卷标中心 X（占瓶子图宽度）",""],cy:["卷标中心 Y（占瓶子图高度）",""]};
-var PRANGE={lightAmt:[0,100],soft:[0,100],grain:[0,100],wrap:[40,360],rot:[-180,180],curveTop:[-12,12],curveBot:[-12,12],edge:[0,100],hl:[0,60],hlPos:[-90,90],size:[20,100],hscale:[60,140],cx:[0,1],cy:[0,1]};
+var PLABEL={wrap:["环绕角度","°"],rot:["左右转动","°"],extend:["用两侧颜色补满瓶身",""],curveTop:["上沿弧度",""],curveBot:["下沿弧度",""],cropL:["左侧裁掉","%"],cropR:["右侧裁掉","%"],lightSrc:["光影来源",""],lightAmt:["光影强度",""],soft:["柔和度",""],lightFlip:["主光放在左边",""],grain:["纸张颗粒",""],edge:["两侧暗部",""],hl:["高光强度",""],hlPos:["高光位置","°"],size:["瓶身宽度","%"],hscale:["高度微调","%"],cx:["卷标中心 X（占瓶子图宽度）",""],cy:["卷标中心 Y（占瓶子图高度）",""]};
+var PRANGE={cropL:[0,40],cropR:[0,40],lightAmt:[0,100],soft:[0,100],grain:[0,100],wrap:[40,360],rot:[-180,180],curveTop:[-12,12],curveBot:[-12,12],edge:[0,100],hl:[0,60],hlPos:[-90,90],size:[20,100],hscale:[60,140],cx:[0,1],cy:[0,1]};
 var MARK="----- 以下内容供工具读取，请勿修改 -----";
 function psay(t){ $("presetStatus").textContent=t; }
 function pad(n){ return (n<10?"0":"")+n; }
